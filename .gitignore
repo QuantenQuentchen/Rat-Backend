@@ -1,0 +1,5 @@
+*.pem
+vendor/
+bin/
+*.sqlite
+*.db
