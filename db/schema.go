@@ -53,11 +53,16 @@ func createSchemas() error {
 		CREATE TABLE IF NOT EXISTS roles (
 			id TEXT PRIMARY KEY,
 			perms BIGINT,
-			unique_role BOOL
+			unique_role BOOL,
+			timeout BIGINT,
+			cascade BOOL
 		);
 		CREATE TABLE IF NOT EXISTS role_bindings (
 			user_id TEXT REFERENCES users(id),
 			role_id TEXT REFERENCES roles(id),
+			issuer_id TEXT REFERENCES users(id),
+			issuer_role_id TEXT REFERENCES roles(id),
+			issuedAt BIGINT,
 			UNIQUE(user_id, role_id)
 		);
 		CREATE TABLE IF NOT EXISTS votes (

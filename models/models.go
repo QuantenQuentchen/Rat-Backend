@@ -43,14 +43,16 @@ type Role struct {
 	Permissions uint64 `db:"perms" json:"permissions"`
 	Unique      bool   `db:"unique_role" json:"unique"`
 	Timeout     uint64 `db:"timeout" json:"timeout,omitempty"`
+	Cascade     bool   `db:"cascade" json:"cascade,omitempty"`
 }
 
 type RoleBinding struct {
-	User_id    string `db:"user_id"`
-	Role_id    string `db:"role_id"`
-	Transferal bool
-	Issuer     string
-	IssuedAt   uint64
+	User_id        string `db:"user_id"`
+	Role_id        string `db:"role_id"`
+	Transferal     bool
+	Issuer_id      *string `db:"issuer_id"`
+	Issuer_Role_id *string `db:"issuer_role_id"`
+	IssuedAt       uint64  `db:"issuedAt"`
 }
 
 type Vote struct {

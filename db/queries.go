@@ -9,7 +9,7 @@ import (
 
 func GetAllRoles() ([]models.Role, error) {
 	var roles []models.Role
-	err := db.Get(&roles, ` SELECT * FROM roles`)
+	err := db.Select(&roles, ` SELECT * FROM roles`)
 	if err != nil {
 		return nil, err
 	}
@@ -19,7 +19,7 @@ func GetAllRoles() ([]models.Role, error) {
 func GetUserRoles(userID string) ([]models.Role, error) {
 	var roles []models.Role
 	err := db.Select(&roles, `
-        SELECT r.id, r.perms, r.unique_role
+        SELECT r.id, r.perms, r.unique_role, r.timeout, r.cascade
         FROM role_bindings rb
         JOIN roles r ON rb.role_id = r.id
         WHERE rb.user_id = ?`, userID)
@@ -27,6 +27,29 @@ func GetUserRoles(userID string) ([]models.Role, error) {
 		return nil, err
 	}
 	return roles, nil
+}
+
+// TODO: Add Logic for this
+func GetUserIssuedBindings(userID string) ([]models.RoleBinding, error) {
+	var bindings []models.RoleBinding
+	err := db.Select(&bindings, `
+		SELECT * FROM role_bindings WHERE issuer_id = ?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	return bindings, nil
+}
+
+func GetUserRoleIssuedBindings(userID string, roleID string) ([]models.RoleBinding, error) {
+	var bindings []models.RoleBinding
+	err := db.Select(&bindings, `
+		SELECT * FROM role_bindings WHERE issuer_id = ? AND issuer_role_id = ?
+	`, userID, roleID)
+	if err != nil {
+		return nil, err
+	}
+	return bindings, nil
 }
 
 func InsertVote(vote models.Vote) (uint64, error) {
