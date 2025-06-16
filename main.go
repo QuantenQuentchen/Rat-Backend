@@ -5,14 +5,19 @@ import (
 	"RatBackend/auth"
 	"RatBackend/db"
 	"RatBackend/handler"
+	"RatBackend/logic"
 	"fmt"
 	"log"
 	"net/http"
 )
 
 func main() {
-	db.InitDB()
+	err := db.InitDB()
+	if err != nil {
+		return
+	}
 	go auth.CleanupJTI()
+	logic.ScheduledTasks()
 
 	http.HandleFunc("/admin/", handler.AdminHandler)
 	http.HandleFunc("/vote/", handler.VoteHandler)

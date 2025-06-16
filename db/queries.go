@@ -29,6 +29,29 @@ func GetUserRoles(userID string) ([]models.Role, error) {
 	return roles, nil
 }
 
+func GetRolesToRemove() ([]models.RoleBinding, error) {
+	var roles []models.RoleBinding
+	err := db.Select(&roles, `
+        SELECT rb.user_id, rb.role_id, rb.issuer_id, rb.issuer_role_id, rb.issuedAt
+        FROM role_bindings rb
+        JOIN roles r ON rb.role_id = r.id
+        WHERE rb.issuedAt + r.timeout <= ?`, time.Now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+func IsCascadingRole(roleID string) (bool, error) {
+	var isCascading bool
+	err := db.Get(&isCascading, `
+		SELECT cascade FROM roles WHERE id = ?`, roleID)
+	if err != nil {
+		return false, err
+	}
+	return isCascading, nil
+}
+
 // TODO: Add Logic for this
 func GetUserIssuedBindings(userID string) ([]models.RoleBinding, error) {
 	var bindings []models.RoleBinding

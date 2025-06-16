@@ -32,6 +32,28 @@ func conclude(vote models.Vote) {
 	}
 }
 
+func RemoveRoleBinding(user_id, role_id string) error {
+	isCascading, err := db.IsCascadingRole(role_id)
+	//events.BroadcastRoleUpdate(user_id, role_id, models.RoleRemoved)
+	if err != nil {
+		return fmt.Errorf("failed to check if role %s is cascading: %w", role_id, err)
+	}
+	db.RemoveRoleBinding(user_id, role_id)
+	if isCascading {
+		rolesToRemove, err := db.GetUserRoleIssuedBindings(user_id, role_id)
+		if err != nil {
+			return fmt.Errorf("failed to get roles to remove for user %s and role %s: %w", user_id, role_id, err)
+		}
+		for _, role := range rolesToRemove {
+			err := RemoveRoleBinding(role.Role_id, role.User_id)
+			if err != nil {
+				return fmt.Errorf("failed to remove cascading role binding for user %s and role %s: %w", role.User_id, role.Role_id, err)
+			}
+		}
+	}
+	return nil
+}
+
 func changeVoteState(vote_id uint64, state models.VoteState, opts ...models.VoteStateOption) error {
 	ctx := &models.VoteStateChangeContext{}
 	for _, opt := range opts {
