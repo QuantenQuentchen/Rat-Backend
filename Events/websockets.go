@@ -18,6 +18,14 @@ const (
 	VoteUpdate EventType = iota
 	VoteCreation
 	VoteStateChange
+	RoleUpdate
+)
+
+type RoleUpdateType int
+
+const (
+	RoleAdded RoleUpdateType = iota
+	RoleRemoved
 )
 
 // Thread-safe set of connected clients
@@ -90,6 +98,19 @@ type EventMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
+type RoleUpdateMessage struct {
+	RoleID      string                  `json:"role_id"`
+	UserID      string                  `json:"user_id"`
+	UpdateType  RoleUpdateType          `json:"update_type"`
+	Reason      models.RoleChangeReason `json:"reason,omitempty"`
+	IsCascading bool                    `json:"is_cascading,omitempty"`
+	Details     interface{}             `json:"details,omitempty"`
+}
+
+type RemovedByID struct {
+	RemovedByID string `json:"removed_by_id"`
+}
+
 type VoteCreationMessage struct {
 	VoteID uint64 `json:"vote_id"`
 }
@@ -131,6 +152,33 @@ type VoteUpdatePersonal struct {
 	For     []string `json:"for_arr"`
 	Against []string `json:"against_arr"`
 	Abstain []string `json:"abstain_arr"`
+}
+
+func BroadcastRoleUpdate(roleID string, userID string, updateType RoleUpdateType, ctx *models.RoleChangeContext) {
+	var details interface{}
+	if ctx.RemovedByID != "" {
+		details = RemovedByID{
+			RemovedByID: ctx.RemovedByID,
+		}
+	}
+	message := EventMessage{
+		Type: RoleUpdate,
+		Payload: RoleUpdateMessage{
+			RoleID:      roleID,
+			UserID:      userID,
+			UpdateType:  updateType,
+			Reason:      ctx.Reason,
+			IsCascading: ctx.IsCascading,
+			Details:     details,
+		},
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		fmt.Println("Failed to marshal event:", err)
+		return
+	}
+	broadcastEvent(string(data))
 }
 
 func BroadcastVoteStateChange(vote_id uint64, state models.VoteState, ctx *models.VoteStateChangeContext) {

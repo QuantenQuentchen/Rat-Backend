@@ -8,6 +8,7 @@ const (
 	FailedInconclusive
 	FailedVotes
 	Succeeded
+	SucceededEmergency
 )
 
 type VoteKind int
@@ -36,10 +37,35 @@ const (
 	PermInternalInfo PermFlag = 1 << 4
 	PermPublicInfo   PermFlag = 1 << 5
 	PermSuggest      PermFlag = 1 << 6
+	PermCreateRole   PermFlag = 1 << 7
+	PermAuditLog     PermFlag = 1 << 8
+	PermContestVeto  PermFlag = 1 << 9
+	PermSuspendUser  PermFlag = 1 << 10
+	PermRemoveRole   PermFlag = 1 << 11
+	PermAssignRole   PermFlag = 1 << 12
+	PermRestoreUser  PermFlag = 1 << 13
 )
 
+var PermFlagNames = map[PermFlag]string{
+	PermVote:         "vote",
+	PermStartVote:    "start_vote",
+	PermConcludeVote: "conclude_vote",
+	PermVeto:         "veto",
+	PermInternalInfo: "internal_info",
+	PermPublicInfo:   "public_info",
+	PermSuggest:      "suggest",
+	PermCreateRole:   "create_role",
+	PermAuditLog:     "audit_log",
+	PermContestVeto:  "contest_veto",
+	PermSuspendUser:  "suspend_user",
+	PermRemoveRole:   "remove_role",
+	PermAssignRole:   "assign_role",
+	PermRestoreUser:  "restore_user",
+}
+
 type Role struct {
-	Name        string `db:"id" json:"name"`
+	ID          uint64 `db:"id" json:"id, omitempty"`
+	Name        string `db:"name" json:"name"`
 	Permissions uint64 `db:"perms" json:"permissions"`
 	Unique      bool   `db:"unique_role" json:"unique"`
 	Timeout     uint64 `db:"timeout" json:"timeout,omitempty"`
@@ -47,12 +73,12 @@ type Role struct {
 }
 
 type RoleBinding struct {
-	User_id        string `db:"user_id"`
-	Role_id        string `db:"role_id"`
-	Transferal     bool
-	Issuer_id      *string `db:"issuer_id"`
-	Issuer_Role_id *string `db:"issuer_role_id"`
-	IssuedAt       uint64  `db:"issuedAt"`
+	UserId       string `db:"user_id"`
+	RoleId       string `db:"role_id"`
+	Transferal   bool
+	IssuerId     *string `db:"issuer_id"`
+	IssuerRoleId *string `db:"issuer_role_id"`
+	IssuedAt     uint64  `db:"issuedAt"`
 }
 
 type Vote struct {
@@ -70,6 +96,43 @@ type Vote struct {
 type User struct {
 	ID   string `db:"id"`
 	Name string `db:"name"`
+}
+
+type RoleChangeReason int
+
+const (
+	ReasonNone RoleChangeReason = iota
+	ReasonTransferal
+	ReasonTimeout
+	ReasonCascading
+	ReasonRemovedByUser
+)
+
+type RoleChangeContext struct {
+	Reason      RoleChangeReason
+	RemovedByID string
+	IsCascading bool
+}
+
+type RoleChangeOption func(*RoleChangeContext)
+
+func WithRoleChangeReason(reason RoleChangeReason) RoleChangeOption {
+	return func(ctx *RoleChangeContext) {
+		ctx.Reason = reason
+	}
+}
+
+func WithCascadeReason() RoleChangeOption {
+	return func(ctx *RoleChangeContext) {
+		ctx.IsCascading = true
+	}
+}
+
+func WithRemovedByID(userID string) RoleChangeOption {
+	return func(ctx *RoleChangeContext) {
+		ctx.Reason = ReasonRemovedByUser
+		ctx.RemovedByID = userID
+	}
 }
 
 type VoteStateChangeContext struct {

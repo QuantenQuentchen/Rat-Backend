@@ -2,6 +2,7 @@ package logic
 
 import (
 	"RatBackend/db"
+	"RatBackend/models"
 	"fmt"
 	"time"
 )
@@ -25,12 +26,12 @@ func roleRemoveCheck() {
 
 		roleArr, err := db.GetRolesToRemove()
 		if err != nil {
-			fmt.Errorf("There has been an error %w", err)
+			fmt.Printf("There has been an error %w", err)
 		}
 		for _, role := range roleArr {
-			err := RemoveRoleBinding(role.User_id, role.Role_id)
+			err := RemoveRoleBinding(role.UserId, role.RoleId, nil, models.WithRoleChangeReason(models.ReasonTimeout))
 			if err != nil {
-				fmt.Errorf("There has been an error %w", err)
+				fmt.Printf("There has been an error %w", err)
 			}
 		}
 	}

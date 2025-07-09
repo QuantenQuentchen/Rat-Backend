@@ -30,11 +30,14 @@ func AdminHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		binding := models.RoleBinding{
-			User_id:    r.FormValue("user_id"),
-			Role_id:    r.FormValue("role_id"),
+			UserId:     r.FormValue("user_id"),
+			RoleId:     r.FormValue("role_id"),
 			Transferal: isTransferalInt != 0,
 		}
-		db.AssignRoles(binding)
+		err = db.AssignRoles(binding)
+		if err != nil {
+			return
+		}
 	case "/admin/create-user":
 		user_id := authStruct.Subject
 		name := r.FormValue("name")

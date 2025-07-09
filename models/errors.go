@@ -7,4 +7,5 @@ var (
 	ErrNotOngoing        = errors.New("vote is not ongoing")
 	ErrNoAbstain         = errors.New("vote has no abstain rights")
 	ErrReservedEndpoint  = errors.New("reserved endpoint")
+	ErrUnknownFunction   = errors.New("unknown function called")
 )

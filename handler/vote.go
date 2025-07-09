@@ -2,6 +2,7 @@ package handler
 
 import (
 	"RatBackend/auth"
+	"RatBackend/db"
 	"RatBackend/logic"
 	"RatBackend/models"
 	"fmt"
@@ -58,6 +59,15 @@ func VoteHandler(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			fmt.Println("Error while executing Vote Creation, %w", err)
+		}
+	case "/vote/private-vote":
+		voteID, err := strconv.Atoi(r.FormValue("vote_id"))
+		if err != nil {
+			fmt.Println("Error while parsing Form Val, %w", err)
+		}
+		err = db.SetVotePrivate(uint64(voteID))
+		if err != nil {
+			fmt.Println("Error while setting vote as private, %w", err)
 		}
 	default:
 		http.NotFound(w, r)

@@ -7,6 +7,60 @@ import (
 	"time"
 )
 
+func AddRole(role models.Role) (string, error) {
+	result, err := db.NamedExec(`
+		INSERT INTO roles (name, perms, unique_role, timeout, "cascade")
+		VALUES (:name, :perms, :unique_role, :timeout, :cascade)`,
+		role)
+	if err != nil {
+		return "", fmt.Errorf("failed to add role: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return "", fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	return fmt.Sprintf("%d", id), nil
+}
+
+func UpdateRole(roleId string, role models.Role) error {
+	params := map[string]interface{}{
+		"id":          roleId,
+		"name":        role.Name,
+		"perms":       role.Permissions,
+		"unique_role": role.Unique,
+		"timeout":     role.Timeout,
+		"cascade":     role.Cascade,
+	}
+	_, err := db.NamedExec(`
+		UPDATE roles
+		SET name = :name, perms = :perms, unique_role = :unique_role, timeout = :timeout, "cascade" = :cascade
+		WHERE id = :id`, params)
+	if err != nil {
+		return fmt.Errorf("failed to update role: %w", err)
+	}
+	return nil
+}
+
+func ValidateRole(role models.Role) error {
+	if role.Timeout <= 0 {
+		return fmt.Errorf("role timeout cannot be negative, or Null")
+	}
+	tx, err := db.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	_, err = tx.NamedExec(`
+		INSERT INTO roles (name, perms, unique_role, timeout, "cascade")
+		VALUES (:name, :perms, :unique_role, :timeout, :cascade)`,
+		role)
+	if err != nil {
+		RBerr := tx.Rollback()
+		return fmt.Errorf("failed to insert role: %w, %w", err, RBerr)
+	}
+	tx.Rollback()
+	return nil
+}
+
 func GetAllRoles() ([]models.Role, error) {
 	var roles []models.Role
 	err := db.Select(&roles, ` SELECT * FROM roles`)
@@ -19,7 +73,7 @@ func GetAllRoles() ([]models.Role, error) {
 func GetUserRoles(userID string) ([]models.Role, error) {
 	var roles []models.Role
 	err := db.Select(&roles, `
-        SELECT r.id, r.perms, r.unique_role, r.timeout, r.cascade
+        SELECT r.id ,r.name, r.perms, r.unique_role, r.timeout, r."cascade"
         FROM role_bindings rb
         JOIN roles r ON rb.role_id = r.id
         WHERE rb.user_id = ?`, userID)
@@ -36,16 +90,14 @@ func GetRolesToRemove() ([]models.RoleBinding, error) {
         FROM role_bindings rb
         JOIN roles r ON rb.role_id = r.id
         WHERE rb.issuedAt + r.timeout <= ?`, time.Now().Unix())
-	if err != nil {
-		return nil, err
-	}
-	return roles, nil
+	return roles, err
 }
 
 func IsCascadingRole(roleID string) (bool, error) {
 	var isCascading bool
 	err := db.Get(&isCascading, `
-		SELECT cascade FROM roles WHERE id = ?`, roleID)
+		SELECT "cascade" FROM roles WHERE id = ?
+	`, roleID)
 	if err != nil {
 		return false, err
 	}
@@ -183,6 +235,30 @@ func IsPrivate(voteID uint64) bool {
 	return isPrivate
 }
 
+func GetRole(roleID string) (*models.Role, error) {
+	var role models.Role
+	err := db.Get(&role, `
+		SELECT id, name, perms, unique_role, timeout, "cascade"
+		FROM roles
+		WHERE id = ?`, roleID)
+	if err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+func GetRolePermFlags(roleID string) (models.PermFlag, error) {
+	var perms models.PermFlag
+	err := db.Select(&perms, `
+			SELECT r.perms
+			FROM roles r
+			WHERE r.id = ?`, roleID)
+	if err != nil {
+		return 0, err
+	}
+	return perms, nil
+}
+
 func GetUserRolePermFlags(userID string) ([]models.PermFlag, error) {
 	var perms []models.PermFlag
 	err := db.Select(&perms, `
@@ -214,6 +290,26 @@ func UserHasPermission(userID string, check models.PermFlag) (bool, error) {
 	return false, nil
 }
 
+func GetVoteKind(voteID uint64) (models.VoteKind, error) {
+	var kind models.VoteKind
+	err := db.Get(&kind, "SELECT kind FROM votes WHERE id = ?", voteID)
+	if err != nil {
+		return models.Simple, err // Default to Simple if not found
+	}
+	return kind, nil
+}
+
+func SetVotePrivate(voteID uint64) error {
+	err, _ := db.Exec(
+		`UPDATE votes SET isPrivate = ? WHERE id = ?`,
+		true, voteID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set vote %d as private: %w", voteID, err)
+	}
+	return nil
+}
+
 func GetVotesToConclude() ([]models.Vote, error) {
 	var voteArr []models.Vote
 	err := db.Select(&voteArr, "SELECT * FROM votes WHERE timeout <= ? AND voteState == ?", time.Now().Unix(), models.Ongoing)
@@ -237,7 +333,7 @@ func RemoveRoleBinding(userID, roleID string) error {
 
 func AssignRoles(binding models.RoleBinding) error {
 	var isUnique bool
-	err := db.Get(&isUnique, "SELECT unique_role FROM roles WHERE id = ?", binding.Role_id)
+	err := db.Get(&isUnique, "SELECT unique_role FROM roles WHERE id = ?", binding.RoleId)
 	if err != nil {
 		return fmt.Errorf("failed to check role uniqueness: %w", err)
 	}
@@ -245,7 +341,7 @@ func AssignRoles(binding models.RoleBinding) error {
 		return fmt.Errorf("cannot assign unique role")
 	}
 	if isUnique && binding.Transferal {
-		err := RemoveRoleBinding(binding.User_id, binding.Role_id)
+		err := RemoveRoleBinding(binding.UserId, binding.RoleId)
 		if err != nil {
 			return fmt.Errorf("failed to remove role binding: %w", err)
 		}

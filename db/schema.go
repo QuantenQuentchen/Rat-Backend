@@ -7,19 +7,32 @@ import (
 
 var roleArray = []models.Role{
 	{
-		Name:        "Chairmen",
-		Permissions: uint64(models.PermVote | models.PermStartVote | models.PermConcludeVote | models.PermVeto | models.PermInternalInfo | models.PermSuggest),
-		Unique:      true,
+		Name: "Chairmen",
+		Permissions: uint64(
+			models.PermVote | models.PermStartVote | models.PermConcludeVote |
+				models.PermVeto | models.PermInternalInfo | models.PermSuggest |
+				models.PermCreateRole | models.PermAuditLog | models.PermContestVeto |
+				models.PermSuspendUser | models.PermRemoveRole | models.PermAssignRole |
+				models.PermRestoreUser),
+		Unique: true,
 	},
 	{
-		Name:        "CoChairmen",
-		Permissions: uint64(models.PermVote | models.PermStartVote | models.PermConcludeVote | models.PermVeto | models.PermInternalInfo | models.PermSuggest),
-		Unique:      true,
+		Name: "CoChairmen",
+		Permissions: uint64(
+			models.PermVote | models.PermStartVote | models.PermConcludeVote |
+				models.PermVeto | models.PermInternalInfo | models.PermSuggest |
+				models.PermCreateRole | models.PermAuditLog | models.PermContestVeto |
+				models.PermSuspendUser | models.PermRemoveRole | models.PermAssignRole |
+				models.PermRestoreUser),
+		Unique:  true,
+		Cascade: true,
 	},
 	{
-		Name:        "Member",
-		Permissions: uint64(models.PermVote | models.PermPublicInfo | models.PermSuggest),
-		Unique:      false,
+		Name: "Member",
+		Permissions: uint64(
+			models.PermVote | models.PermPublicInfo | models.PermSuggest |
+				models.PermContestVeto),
+		Unique: false,
 	},
 	{
 		Name:        "Observer",
@@ -27,16 +40,17 @@ var roleArray = []models.Role{
 		Unique:      false,
 	},
 	{
-		Name:        "Watchdog",
-		Permissions: uint64(models.PermPublicInfo | models.PermSuggest | models.PermInternalInfo),
-		Unique:      true,
+		Name: "Watchdog",
+		Permissions: uint64(
+			models.PermPublicInfo | models.PermSuggest | models.PermInternalInfo |
+				models.PermContestVeto | models.PermAuditLog | models.PermVeto),
+		Unique: true,
 	},
 }
 
 func createRoles() error {
-	query := `INSERT OR REPLACE INTO roles (id, perms, unique_role) VALUES (:id, :perms, :unique_role)`
 	for _, role := range roleArray {
-		_, err := db.NamedExec(query, role)
+		_, err := AddRole(role)
 		if err != nil {
 			return fmt.Errorf("failed to insert role %s: %w", role.Name, err)
 		}
@@ -51,11 +65,12 @@ func createSchemas() error {
 			name TEXT NOT NULL
 		);
 		CREATE TABLE IF NOT EXISTS roles (
-			id TEXT PRIMARY KEY,
+		    id BIGINT AUTOINCREMENT PRIMARY KEY,
+			name TEXT PRIMARY KEY,
 			perms BIGINT,
-			unique_role BOOL,
+			unique_role BOOLEAN,
 			timeout BIGINT,
-			cascade BOOL
+			"cascade" BOOLEAN
 		);
 		CREATE TABLE IF NOT EXISTS role_bindings (
 			user_id TEXT REFERENCES users(id),
@@ -70,8 +85,8 @@ func createSchemas() error {
 			name TEXT,
 			description TEXT,
 			kind INT,
-			hasAbstain bool,
-			isPrivate bool,
+			hasAbstain BOOLEAN,
+			isPrivate BOOLEAN,
 			voteState INT,
 			timeout BIGINT,
 			createdAt BIGINT
@@ -82,7 +97,21 @@ func createSchemas() error {
 			user_id TEXT,
 			choice INT,
 			UNIQUE(vote_id, user_id)
-		)
+		);
+		CREATE TABLE IF NOT EXISTS role_assign_permissions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			assigner_role_id TEXT REFERENCES roles(id),
+			assignee_role_id TEXT REFERENCES roles(id),
+			UNIQUE(assigner_role_id, assignee_role_id)
+		);
+		CREATE TABLE IF NOT EXISTS vote_hooks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			vote_id INT REFERENCES votes(id),
+			hook_type INT, --call hook type enum
+			hook_data TEXT, -- JSON for args
+			hook_function TEXT, -- function name to call
+			UNIQUE(vote_id, hook_type)
+			)
 	`
 	_, err := db.Exec(schema)
 	return err

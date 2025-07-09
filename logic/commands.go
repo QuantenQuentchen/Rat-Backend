@@ -26,45 +26,87 @@ func conclude(vote models.Vote) {
 	}
 	total := voteMap[models.For] + voteMap[models.Against] + voteMap[models.Abstain]
 	if models.VoteKindFunctions[vote.Kind](voteMap[models.For], voteMap[models.Against], total) {
-		changeVoteState(vote.ID, models.Succeeded)
+		err = changeVoteState(vote.ID, models.Succeeded)
+		if err != nil {
+			return
+		}
 	} else {
-		changeVoteState(vote.ID, models.FailedVotes)
+		err = changeVoteState(vote.ID, models.FailedVotes)
+		if err != nil {
+			return
+		}
 	}
 }
 
-func RemoveRoleBinding(user_id, role_id string) error {
-	isCascading, err := db.IsCascadingRole(role_id)
-	//events.BroadcastRoleUpdate(user_id, role_id, models.RoleRemoved)
-	if err != nil {
-		return fmt.Errorf("failed to check if role %s is cascading: %w", role_id, err)
+func RemoveRoleBinding(userId, roleId string, ctx *models.RoleChangeContext, opts ...models.RoleChangeOption) error {
+	isCascading, err := db.IsCascadingRole(roleId)
+	if ctx == nil {
+		ctx = &models.RoleChangeContext{}
 	}
-	db.RemoveRoleBinding(user_id, role_id)
+	for _, opt := range opts {
+		opt(ctx)
+	}
+	events.BroadcastRoleUpdate(userId, roleId, events.RoleRemoved, ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check if role %s is cascading: %w", roleId, err)
+	}
+	err = db.RemoveRoleBinding(userId, roleId)
+	if err != nil {
+		return err
+	}
 	if isCascading {
-		rolesToRemove, err := db.GetUserRoleIssuedBindings(user_id, role_id)
+		var rolesToRemove, err = db.GetUserRoleIssuedBindings(userId, roleId)
 		if err != nil {
-			return fmt.Errorf("failed to get roles to remove for user %s and role %s: %w", user_id, role_id, err)
+			return fmt.Errorf("failed to get roles to remove for user %s and role %s: %w", userId, roleId, err)
 		}
 		for _, role := range rolesToRemove {
-			err := RemoveRoleBinding(role.Role_id, role.User_id)
+			err = RemoveRoleBinding(role.RoleId, role.UserId, ctx, models.WithCascadeReason())
 			if err != nil {
-				return fmt.Errorf("failed to remove cascading role binding for user %s and role %s: %w", role.User_id, role.Role_id, err)
+				return fmt.Errorf("failed to remove cascading role binding for user %s and role %s: %w", role.UserId, role.RoleId, err)
 			}
 		}
 	}
 	return nil
 }
 
-func changeVoteState(vote_id uint64, state models.VoteState, opts ...models.VoteStateOption) error {
+func changeVoteState(voteId uint64, state models.VoteState, opts ...models.VoteStateOption) error {
 	ctx := &models.VoteStateChangeContext{}
 	for _, opt := range opts {
 		opt(ctx)
 	}
-	_, err := db.UpdateVoteState(vote_id, state)
+	_, err := db.UpdateVoteState(voteId, state)
 	if err != nil {
 		return err
 	}
 
-	events.BroadcastVoteStateChange(vote_id, state, ctx)
+	events.BroadcastVoteStateChange(voteId, state, ctx)
+	if state == models.Succeeded || state == models.SucceededEmergency {
+		//somehow call an on_suceeded hook
+	}
+	return nil
+}
+
+func SetVotePrivate(voteId uint64) error {
+
+	isOngoing, err := db.IsOngoing(voteId)
+	if err != nil {
+		return err
+	}
+	if !isOngoing {
+		return models.ErrNotOngoing
+	}
+	kind, err := db.GetVoteKind(voteId)
+	if err != nil {
+		return fmt.Errorf("failed to get vote kind for vote %d: %w", voteId, err)
+	}
+	if kind != models.Simple {
+		return fmt.Errorf("vote %d is not a simple vote, cannot set private", voteId)
+	}
+	err = db.SetVotePrivate(voteId)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -82,15 +124,15 @@ func createVote(name, description string, kind models.VoteKind, timeout uint64, 
 	}
 	id, err := db.InsertVote(vote)
 	if err != nil {
-		fmt.Errorf("Error creating vote %w", err)
+		fmt.Println("error creating vote %w", err)
 	}
 	vote.ID = id
 	events.BroadcastVoteCreation(vote)
 	return id, nil
 }
 
-func Vote(user_id string, vote_id uint64, position models.Position) error {
-	allowed, err := db.UserHasPermission(user_id, models.PermVote)
+func Vote(userId string, voteId uint64, position models.Position) error {
+	allowed, err := db.UserHasPermission(userId, models.PermVote)
 	if err != nil {
 		return err
 	}
@@ -98,7 +140,7 @@ func Vote(user_id string, vote_id uint64, position models.Position) error {
 		return models.ErrMissingPermission
 	}
 
-	isOngoing, err := db.IsOngoing(vote_id)
+	isOngoing, err := db.IsOngoing(voteId)
 	if err != nil {
 		return err
 	}
@@ -106,7 +148,7 @@ func Vote(user_id string, vote_id uint64, position models.Position) error {
 		return models.ErrNotOngoing
 	}
 	if position == models.Abstain {
-		hasAbstain, err := db.HasAbstain(vote_id)
+		hasAbstain, err := db.HasAbstain(voteId)
 		if err != nil {
 			return err
 		}
@@ -114,7 +156,7 @@ func Vote(user_id string, vote_id uint64, position models.Position) error {
 			return models.ErrNoAbstain
 		}
 	}
-	err = db.AddOrChangeVote(user_id, vote_id, position)
+	err = db.AddOrChangeVote(userId, voteId, position)
 	if err != nil {
 		return err
 	}
@@ -122,26 +164,26 @@ func Vote(user_id string, vote_id uint64, position models.Position) error {
 	return nil
 }
 
-func Veto(user_id string, vote_id uint64, reason string) error {
-	allowed, err := db.UserHasPermission(user_id, models.PermVeto)
+func Veto(userId string, voteId uint64, reason string) error {
+	allowed, err := db.UserHasPermission(userId, models.PermVeto)
 	if err != nil {
 		return err
 	}
 	if !allowed {
 		return models.ErrMissingPermission
 	}
-	isOngoing, err := db.IsOngoing(vote_id)
+	isOngoing, err := db.IsOngoing(voteId)
 	if err != nil {
 		return err
 	}
 	if !isOngoing {
 		return models.ErrNotOngoing
 	}
-	return changeVoteState(vote_id, models.FailedVeto, models.WithVetoDetails(user_id, reason))
+	return changeVoteState(voteId, models.FailedVeto, models.WithVetoDetails(userId, reason))
 }
 
-func CreateVote(name, description string, kind models.VoteKind, timeout uint64, isPrivate, hasAbstain bool, user_id string) error {
-	allowed, err := db.UserHasPermission(user_id, models.PermStartVote)
+func CreateVote(name, description string, kind models.VoteKind, timeout uint64, isPrivate, hasAbstain bool, userId string) error {
+	allowed, err := db.UserHasPermission(userId, models.PermStartVote)
 	if err != nil {
 		return err
 	}
